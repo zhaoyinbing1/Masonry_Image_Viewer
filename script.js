@@ -2,19 +2,25 @@
 //缓存
 //历史
 //复制 移动 删除
+let debugMode = true;
 navigator.serviceWorker.register("sw.js");
 class Queue {
-  constructor(items = []) {
-    this.items = items;
+  constructor() {
+    this.items = [];
     this.getters = [];
   }
+  
   push(item) {
     this.items.push(item);
-    if (this.getters.length > 0) this.getters.shift()(this.items.shift());
+	
+    if (this.getters.length > 0)
+		this.getters.shift()(this.items.shift());
   }
+  
   shift() {
     if (this.items.length === 0)
-      return new Promise((resolve) => this.getters.push(resolve));
+    return new Promise((resolve) => this.getters.push(resolve));
+
     return this.items.shift();
   }
 }
@@ -269,40 +275,64 @@ function initLoad() {
   hint.remove();
 }
 async function handle(items, dir = "", folderUl = dirtree.children[0]) {
-  for await (let item of items) {
+  
+  let entries = [];
+  for await (let item of items) entries.push(item);
+   entries.sort((a, b) => {
+      if (a.kind !== b.kind) {
+      return a.kind === "directory" ? -1 : 1;
+    }
+	return a.name.localeCompare(b.name, undefined, { numeric: true});
+   });
+   
+  for await (let item of entries) {
     let name = item.name;
     let path = dir + "/" + name;
     if (allData.has(path)) continue;
-    if (item.kind === "directory") {
-      dircount++;
-      let val = totalcount.value,
-        index = val + dircount;
-      let li = newEl("li");
+    
+	if (item.kind === "directory") {
+
+	  dircount++;
+      let val = totalcount.value;
+      let index = val + dircount;
+      
+	  let li = newEl("li");
       li.innerText = name;
       li.id = "li" + index;
       li.index = index;
       folderUl.appendChild(li);
-      let ul = newEl("ul");
+      
+	  let ul = newEl("ul");
       folderUl.appendChild(ul);
-      toLoad.push(path);
+      
+	  toLoad.push(path);
       allData.set(path, index);
-      await handle(item.values(), path, ul);
-      if (val === totalcount.value) {
+      
+	  await handle(item.values(), path, ul);
+      
+	  if (val === totalcount.value) {
         li.style.display = "none";
         ul.style.display = "none";
       }
-    }
+	  
+    }	
     if (item.kind === "file") {
       let file = await item.getFile();
-      if (!file.type.match(/image.*/)) continue;
-      totalcount.value++;
-      file.dir = dir;
+
+	  if (!file.type.match(/image.*/)) continue;
+      
+	  totalcount.value++;
+      
+	  file.dir = dir;
       file.path = path;
       file.index = totalcount.value + dircount;
-      allData.set(path, { file });
-      toLoad.push(path);
+      
+	  allData.set(path, { file });
+      
+	  toLoad.push(path);
       totalcount.innerText = totalcount.value;
     }
+
   }
 }
 function reflow(index = 0) {
@@ -310,6 +340,7 @@ function reflow(index = 0) {
   imgbox.querySelectorAll(".mark").forEach((el) => {
     el.remove();
   });
+  
   minCol = imgbox;
   marks = [];
   visImgs.clear();
@@ -322,6 +353,7 @@ function reflow(index = 0) {
       imgcol.onmouseout = addInfo;
     }
   }
+  
   imgbox.replaceChildren(...imgcols);
   loading = 0;
   if (showcount.value > 0) {
@@ -330,12 +362,18 @@ function reflow(index = 0) {
     showcount.value = 0;
   }
   if (index > 0) toLoad.items = toLoad.items.slice(index);
-  let key = sortby.value;
-  if (key !== enums.default)
-    toLoad.items = toLoad.items
-      .filter((p) => typeof allData.get(p) === "object")
-      .sort((a, b) => allData.get(a).file[key] - allData.get(b).file[key]);
+  
+  toLoad.items = toLoad.items
+   .filter((p) => typeof allData.get(p) === "object")
+   .sort((a, b) => {
+      if (a.kind !== b.kind) {
+      return a.kind === "directory" ? -1 : 1;
+    }
+   return a.name.localeCompare(b.name, undefined, { numeric: true });
+   });
+  
   if (order.value === enums.desc) toLoad.items.reverse();
+  
   loadNext();
 }
 async function loadNext() {
@@ -661,7 +699,7 @@ function parseRatio() {
             .map(Number)
             .reduce((p, c) => p / c)
     )
-    .sort();
+    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN", { numeric: true }));
   [minR, maxR] = arr.concat(arr);
   reflow();
 }
@@ -771,4 +809,23 @@ document.addEventListener("keydown", (e) => {
     ["ArrowLeft", "ArrowRight", "a", "d"].includes(e.key)
   )
     naviZoom(e);
+});
+
+document.addEventListener("contextmenu", function (e) {
+  if (!debugMode) return;
+
+  e.preventDefault(); // 阻止浏览器默认右键菜单
+
+   let win = window.open("", "_blank", "width=600,height=800,scrollbars=yes");
+  win.document.write("<pre>");
+
+  for (let [path, entry] of allData.entries()) {
+    if (typeof entry === "object") {
+      win.document.write(`🖼 文件: ${entry.file.name}（${path}）\n`);
+    } else {
+      win.document.write(`📁 目录: ${path}\n`);
+    }
+  }
+
+  win.document.write("</pre>");
 });
